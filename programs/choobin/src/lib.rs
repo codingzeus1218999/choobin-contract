@@ -16,7 +16,9 @@ use crate::{error::ErrorCode};
 pub mod contexts;
 pub use contexts::*;
 
-declare_id!("3ZnnKeXdekaUr7KgfeLpnohRQZvsBtg4ik1sNSV2MQvF");
+pub mod error;
+
+declare_id!("Ex1dEkyy4hF6ranqa5WcGV2X4hHpdd3JUJ5arocXtBEz");
 
 #[program]
 pub mod choobin {
@@ -28,15 +30,15 @@ pub mod choobin {
         let mint = &ctx.accounts.mint;
         let treasury = &ctx.accounts.treasury;
 
-        if !presale_info.is_initialized {
-            presale_info.is_initialized = true;
-            presale_info.admin = initializer.to_account_info().key();
-            presale_info.mint = mint.to_account_info().key();
-            presale_info.amount = 0;
-            presale_info.price = 133000;    // 1 choobin = 0.000133 SOL
-            presale_info.end_timestamp = 0;
-            presale_info.treasury = treasury.to_account_info().key();
-        }
+        require!(!presale_info.is_initialized, ErrorCode::ErrorInitializedAready);
+
+        presale_info.is_initialized = true;
+        presale_info.admin = initializer.to_account_info().key();
+        presale_info.mint = mint.to_account_info().key();
+        presale_info.amount = 0;
+        presale_info.price = 3500;    // 1 choobin = 0.0000035 SOL
+        presale_info.end_timestamp = 0;
+        presale_info.treasury = treasury.to_account_info().key();
 
         Ok(())
     }
@@ -55,65 +57,73 @@ pub mod choobin {
 
         presale_info.amount += amount;
         Ok(())
-    }    
+    }
 
     pub fn burn_token(ctx: Context<BurnToken>) -> Result<()> {
         let presale_info = &mut ctx.accounts.presale_info;
         let now_ts = Clock::get().unwrap().unix_timestamp as u64;
-        if now_ts > presale_info.end_timestamp {
-            //--- send token from presale to user pda ---------
-            // signer -> presale_info
-            let (_presale_info_pda, presale_info_bump) = Pubkey::find_program_address(
-                &[
-                    PRESALE_INFO_SEED.as_bytes(),
-                ],
-                ctx.program_id
-            );
-            let seeds = &[
+
+        require!(now_ts > presale_info.end_timestamp, ErrorCode::ErrorInvalidTimestamp);
+
+        //--- send token from presale to user pda ---------
+        // signer -> presale_info
+        let (_presale_info_pda, presale_info_bump) = Pubkey::find_program_address(
+            &[
                 PRESALE_INFO_SEED.as_bytes(),
-                &[presale_info_bump]
-            ];
-            let signer = &[&seeds[..]];
+            ],
+            ctx.program_id
+        );
+        let seeds = &[
+            PRESALE_INFO_SEED.as_bytes(),
+            &[presale_info_bump]
+        ];
+        let signer = &[&seeds[..]];
 
-            let cpi_accounts = Burn {
-                mint: ctx.accounts.mint.to_account_info(),
-                from: ctx.accounts.presale_info_mint_ata.to_account_info(),
-                authority: presale_info.to_account_info(),
-            };
-            let cpi_program = ctx.accounts.token_program.to_account_info();
-            let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-            token::burn(cpi_ctx, presale_info.amount)?;    
+        let cpi_accounts = Burn {
+            mint: ctx.accounts.mint.to_account_info(),
+            from: ctx.accounts.presale_info_mint_ata.to_account_info(),
+            authority: presale_info.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+        token::burn(cpi_ctx, presale_info.amount)?;    
 
-            //---- update data -----------
-            presale_info.amount = 0;
-
-        }
+        //---- update data -----------
+        presale_info.amount = 0;
 
         Ok(())
-    }    
+    }
 
     pub fn change_admin(ctx: Context<ChangeAdmin>) -> Result<()> {
         let presale_info = &mut ctx.accounts.presale_info;
         let new_admin = &ctx.accounts.new_admin;
         presale_info.admin = new_admin.to_account_info().key();
         Ok(())
-    }    
+    }
 
     pub fn change_treasury(ctx: Context<ChangeTreasury>) -> Result<()> {
         let presale_info = &mut ctx.accounts.presale_info;
         let treasury = &ctx.accounts.treasury;
         presale_info.treasury = treasury.to_account_info().key();
         Ok(())
-    }    
+    }
 
     pub fn set_endtime(ctx: Context<SetEndtime>, endtimestamp: u64) -> Result<()> {
-        let now_ts = Clock::get().unwrap().unix_timestamp as u64;
-        if now_ts < endtimestamp {
-            let presale_info = &mut ctx.accounts.presale_info;
-            presale_info.end_timestamp = endtimestamp;
-        }
+        // let now_ts = Clock::get().unwrap().unix_timestamp as u64;
+
+        // require!(now_ts < endtimestamp, ErrorCode::ErrorInvalidTimestamp);
+
+        let presale_info = &mut ctx.accounts.presale_info;
+        presale_info.end_timestamp = endtimestamp;
+
         Ok(())
-    }    
+    }
+
+    pub fn set_price(ctx: Context<SetPrice>, price: u64) -> Result<()> {
+        let presale_info = &mut ctx.accounts.presale_info;
+        presale_info.price = price;
+        Ok(())
+    }
 
     pub fn create_user_info(ctx: Context<CreateUserInfo>) -> Result<()> {
         let user_info = &mut ctx.accounts.user_info;
@@ -136,11 +146,11 @@ pub mod choobin {
 
         //--- send sol -> treasury ---------
         let sol_ix = system_instruction::transfer(
-            &user.to_account_info().key(),
-            &treasury.to_account_info().key(),
+            user.key,
+            treasury.key,
             lamports,
         );
-        invoke(
+        anchor_lang::solana_program::program::invoke(
             &sol_ix,
             &[
                 user.to_account_info(),
@@ -170,7 +180,7 @@ pub mod choobin {
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-        let amount = ( lamports * 1000000000 / presale_info.price ) as u64;
+        let amount = ( lamports / presale_info.price *1000000 ) as u64;
         token::transfer(cpi_ctx, amount)?;    
 
         //---- update data -----------
@@ -178,7 +188,7 @@ pub mod choobin {
         user_info.amount += amount;
 
         Ok(())
-    }    
+    }
 
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         let presale_info = &mut ctx.accounts.presale_info;
@@ -186,36 +196,37 @@ pub mod choobin {
         let user: &Signer = &ctx.accounts.user;
 
         let now_ts = Clock::get().unwrap().unix_timestamp as u64;
-        if now_ts > presale_info.end_timestamp {
-            //--- send token from presale to user pda ---------
-            // signer -> presale_info
-            let (_user_info_pda, user_info_bump) = Pubkey::find_program_address(
-                &[
-                    USER_INFO_SEED.as_bytes(),
-                    &user.to_account_info().key().to_bytes(),
-                ],
-                ctx.program_id
-            );
-            let seeds = &[
+
+        require!(now_ts > presale_info.end_timestamp, ErrorCode::ErrorInvalidTimestamp);
+
+        //--- send token from presale to user pda ---------
+        // signer -> presale_info
+        let (_user_info_pda, user_info_bump) = Pubkey::find_program_address(
+            &[
                 USER_INFO_SEED.as_bytes(),
-                &[user_info_bump]
-            ];
-            let signer = &[&seeds[..]];
+                &user.to_account_info().key().to_bytes(),
+            ],
+            ctx.program_id
+        );
+        let seeds = &[
+            USER_INFO_SEED.as_bytes(),
+            &user.to_account_info().key().to_bytes(),
+            &[user_info_bump]
+        ];
+        let signer = &[&seeds[..]];
 
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.user_info_mint_ata.to_account_info(),
-                to: ctx.accounts.user_mint_ata.to_account_info(),
-                authority: user_info.to_account_info()
-            };
-            let cpi_program = ctx.accounts.token_program.to_account_info();
-            let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-            token::transfer(cpi_ctx, user_info.amount)?;    
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.user_info_mint_ata.to_account_info(),
+            to: ctx.accounts.user_mint_ata.to_account_info(),
+            authority: user_info.to_account_info()
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+        token::transfer(cpi_ctx, user_info.amount)?;    
 
-            //---- update data -----------
-            user_info.amount = 0;
-
-        }
+        //---- update data -----------
+        user_info.amount = 0;
 
         Ok(())
-    }    
+    }
 }

@@ -109,9 +109,9 @@ pub mod choobin {
     }
 
     pub fn set_endtime(ctx: Context<SetEndtime>, endtimestamp: u64) -> Result<()> {
-        // let now_ts = Clock::get().unwrap().unix_timestamp as u64;
+        let now_ts = Clock::get().unwrap().unix_timestamp as u64;
 
-        // require!(now_ts < endtimestamp, ErrorCode::ErrorInvalidTimestamp);
+        require!(now_ts < endtimestamp, ErrorCode::ErrorInvalidTimestamp);
 
         let presale_info = &mut ctx.accounts.presale_info;
         presale_info.end_timestamp = endtimestamp;
@@ -180,7 +180,7 @@ pub mod choobin {
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-        let amount = ( lamports / presale_info.price *1000000 ) as u64;
+        let amount = (lamports * 1000000 / presale_info.price) as u64;
         token::transfer(cpi_ctx, amount)?;    
 
         //---- update data -----------

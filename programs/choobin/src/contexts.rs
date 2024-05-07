@@ -202,7 +202,7 @@ pub struct Claim<'info> {
     #[account(mut, seeds = [PRESALE_INFO_SEED.as_bytes()], bump)]
     pub presale_info: Account<'info, PresaleInfo>,
 
-    #[account(mut, seeds = [USER_INFO_SEED.as_bytes(), user.key().as_ref()], bump)]
+    #[account(mut, close = user, seeds = [USER_INFO_SEED.as_bytes(), user.key().as_ref()], bump)]
     pub user_info: Account<'info, UserInfo>,
 
     #[account(mut,
